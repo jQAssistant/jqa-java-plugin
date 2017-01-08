@@ -11,8 +11,11 @@ import com.buschmais.jqassistant.plugin.java.api.model.AnnotationValueDescriptor
 import com.buschmais.jqassistant.plugin.java.api.model.FieldDescriptor;
 import com.buschmais.jqassistant.plugin.java.api.model.MethodDescriptor;
 import com.buschmais.jqassistant.plugin.java.api.model.ParameterDescriptor;
+import com.buschmais.jqassistant.plugin.java.api.model.PrimitiveValueDescriptor;
+import com.buschmais.jqassistant.plugin.java.api.model.TypeDescriptor;
 import com.buschmais.jqassistant.plugin.java.api.scanner.SignatureHelper;
 import com.buschmais.jqassistant.plugin.java.api.scanner.TypeCache;
+import com.buschmais.jqassistant.plugin.java.api.scanner.TypeCache.CachedType;
 
 import java.util.HashSet;
 
@@ -93,12 +96,62 @@ public class MethodVisitor extends org.objectweb.asm.MethodVisitor {
         visitorHelper.addInvokes(methodDescriptor, lineNumber, invokedMethodDescriptor);
     }
 
-    @Override
-    public void visitLdcInsn(final Object cst) {
-        if (cst instanceof Type) {
-            visitorHelper.resolveType(SignatureHelper.getType((Type) cst), containingType);
+  @Override public void visitLdcInsn(final Object cst) {
+
+    /*
+     *  HACK
+     *  
+     *  public class TwoUsingLegalEntityDot {
+
+            public static final String sampleSelect = "select * from foo where legal_entity.id = 17";
+        
+            public void function2() {
+        
+                function1(sampleSelect);  <=========== these translate to LDC INSN
+            }
         }
+        
+         javap -c /CAL/PSTOOLKIT/dirk-toolkit/AutomatedArchitectureAnalysis/TESTBED/build/classes/main/test/TwoUsingLegalEntityDot.class
+         
+          Compiled from "TwoUsingLegalEntityDot.java"
+          public class test.TwoUsingLegalEntityDot {
+            public static final java.lang.String sampleSelect;
+          
+            public void function2();
+              Code:
+                 0: aload_0
+                 1: ldc           #3                  // String select * from foo where legal_entity.id = 17
+                 3: invokevirtual #4                  // Method function1:(Ljava/lang/String;)I
+                 6: pop
+                 7: return
+          }
+
+     */
+    String fqn = containingType.getTypeDescriptor().getFullQualifiedName();
+    String methodName = methodDescriptor.getName();
+
+    if(cst instanceof String) {
+      
+      String cstS = (String) cst;
+      String someName = "ldc " + methodName + ", line " + line;
+      String fieldSignature = SignatureHelper.getFieldSignature(someName, "Ljava/lang/String;");
+      FieldDescriptor fieldDescriptor = visitorHelper.getFieldDescriptor(containingType, fieldSignature);
+      fieldDescriptor.setName(someName);
+      
+      PrimitiveValueDescriptor valueDescriptor = visitorHelper.getValueDescriptor(PrimitiveValueDescriptor.class);
+      valueDescriptor.setValue(cstS);
+      fieldDescriptor.setValue(valueDescriptor);
+      
+      visitorHelper.addReads(methodDescriptor, line, fieldDescriptor);
     }
+    // HACK
+    
+    if (cst instanceof Type) {
+
+      String type = SignatureHelper.getType((Type) cst);
+      visitorHelper.resolveType(type, containingType);
+    }
+  }
 
     @Override
     public void visitMultiANewArrayInsn(final String desc, final int dims) {
